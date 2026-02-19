@@ -1,0 +1,117 @@
+# Ignore the /debug folder and all its contents
+/debug/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+# Usually these files are written by a python script from a template
+# before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+coverage/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Jupyter Notebook temporary files
+*.~nb
+
+# VS Code settings
+.vscode/
+*.code-workspace
+
+# PyCharm project files
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Eclipse project files
+.metadata/
+*.pydevproject
+.project
+*.pycproject
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+env.bak/
+venv.bak/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Anaconda environments
+.conda/
+*.condarc
+*.conda
+*.env
+*.envs
+.env
+.envs
+
+# Environments variable definitions
+.env
+.env.local
+.venv
+
+# IPython history
+.history
+
+# MyPy cache
+.mypy_cache/
+
+# Pyre type checker
+.pyre/
+
