@@ -31,18 +31,40 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     )
     cur.execute(
         """
-        CREATE TABLE IF NOT EXISTS attendance (
+        CREATE TABLE IF NOT EXISTS attendance_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             student_id INTEGER NOT NULL,
-            date TEXT NOT NULL,
-            status TEXT NOT NULL CHECK(status IN ('present', 'absent')),
-            first_seen_at TEXT,
-            last_seen_at TEXT,
-            UNIQUE(student_id, date),
+            image_path TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            confidence REAL NOT NULL,
             FOREIGN KEY(student_id) REFERENCES students(id)
         )
         """
     )
+    cur.execute("PRAGMA table_info(attendance_logs)")
+    columns = [row[1] for row in cur.fetchall()]
+    if "camera_id" in columns:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS attendance_logs_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL,
+                image_path TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                FOREIGN KEY(student_id) REFERENCES students(id)
+            )
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO attendance_logs_new(id, student_id, image_path, timestamp, confidence)
+            SELECT id, student_id, image_path, timestamp, confidence
+            FROM attendance_logs
+            """
+        )
+        cur.execute("DROP TABLE attendance_logs")
+        cur.execute("ALTER TABLE attendance_logs_new RENAME TO attendance_logs")
     conn.commit()
     return conn
 
@@ -54,26 +76,6 @@ def get_or_create_student(cur: sqlite3.Cursor, name: str) -> int:
     if row is None:
         raise RuntimeError(f"Could not create or fetch student: {name}")
     return int(row[0])
-
-
-def upsert_attendance(cur: sqlite3.Cursor, student_id: int, date_str: str, seen_at: str, status: str) -> None:
-    cur.execute(
-        """
-        INSERT INTO attendance(student_id, date, status, first_seen_at, last_seen_at)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(student_id, date) DO UPDATE SET
-            status = CASE
-                WHEN excluded.status = 'present' THEN 'present'
-                ELSE attendance.status
-            END,
-            first_seen_at = COALESCE(attendance.first_seen_at, excluded.first_seen_at),
-            last_seen_at = CASE
-                WHEN excluded.status = 'present' THEN excluded.last_seen_at
-                ELSE attendance.last_seen_at
-            END
-        """,
-        (student_id, date_str, status, seen_at if status == "present" else None, seen_at if status == "present" else None),
-    )
 
 
 def iter_images(root: Path):
@@ -101,9 +103,15 @@ def main() -> None:
         help='MTCNN device, e.g. "CPU:0" or "CUDA:0".',
     )
     parser.add_argument(
+        "--confidence-threshold",
+        type=float,
+        default=0.0,
+        help="Only store rows with confidence >= this threshold.",
+    )
+    parser.add_argument(
         "--no-reset-today",
         action="store_true",
-        help="Do not clear today's previous attendance/scans before processing.",
+        help="Do not clear today's previous logs/scans before processing.",
     )
     args = parser.parse_args()
 
@@ -117,12 +125,12 @@ def main() -> None:
 
     today = datetime.now().date().isoformat()
     if not args.no_reset_today:
-        cur.execute("DELETE FROM attendance WHERE date = ?", (today,))
+        cur.execute("DELETE FROM attendance_logs WHERE date(timestamp) = ?", (today,))
         cur.execute("DELETE FROM scans WHERE date(scanned_at) = ?", (today,))
         conn.commit()
 
     total_images = 0
-    present_updates = 0
+    logged_rows = 0
 
     for image_path in iter_images(images_root):
         total_images += 1
@@ -132,6 +140,7 @@ def main() -> None:
         detections = detector.detect_faces(str(image_path))
         faces_detected = len(detections)
         now_iso = datetime.now().isoformat(timespec="seconds")
+        max_confidence = max((float(d.get("confidence", 0.0)) for d in detections), default=0.0)
 
         cur.execute(
             """
@@ -141,16 +150,21 @@ def main() -> None:
             (student_id, str(image_path), faces_detected, now_iso),
         )
 
-        status = "present" if faces_detected > 0 else "absent"
-        upsert_attendance(cur, student_id, today, now_iso, status)
-        if status == "present":
-            present_updates += 1
+        if faces_detected > 0 and max_confidence >= args.confidence_threshold:
+            cur.execute(
+                """
+                INSERT INTO attendance_logs(student_id, image_path, timestamp, confidence)
+                VALUES (?, ?, ?, ?)
+                """,
+                (student_id, str(image_path), now_iso, max_confidence),
+            )
+            logged_rows += 1
 
     conn.commit()
     conn.close()
 
     print(f"Scanned images: {total_images}")
-    print(f"Attendance rows updated as present: {present_updates}")
+    print(f"Attendance rows logged: {logged_rows}")
     print(f"Database: {args.db_path.resolve()}")
 
 

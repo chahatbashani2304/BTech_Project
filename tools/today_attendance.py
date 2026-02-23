@@ -9,11 +9,11 @@ def fetch_attendance(conn: sqlite3.Connection, date_str: str):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT s.name, a.status, a.first_seen_at, a.last_seen_at
-        FROM attendance a
+        SELECT s.name, a.timestamp, a.confidence
+        FROM attendance_logs a
         JOIN students s ON s.id = a.student_id
-        WHERE a.date = ?
-        ORDER BY s.name ASC
+        WHERE date(a.timestamp) = ?
+        ORDER BY a.timestamp ASC
         """,
         (date_str,),
     )
@@ -21,25 +21,21 @@ def fetch_attendance(conn: sqlite3.Connection, date_str: str):
 
 
 def print_table(rows, date_str: str) -> None:
-    print(f"Attendance for {date_str}")
-    print("-" * 72)
-    print(f"{'Name':30} {'Status':10} {'First Seen':15} {'Last Seen':15}")
-    print("-" * 72)
-    for name, status, first_seen, last_seen in rows:
-        first_seen_short = (first_seen or "-")[-8:] if first_seen else "-"
-        last_seen_short = (last_seen or "-")[-8:] if last_seen else "-"
-        print(f"{name[:30]:30} {status:10} {first_seen_short:15} {last_seen_short:15}")
-    print("-" * 72)
-    present = sum(1 for _, status, _, _ in rows if status == "present")
-    absent = sum(1 for _, status, _, _ in rows if status == "absent")
-    print(f"Total: {len(rows)} | Present: {present} | Absent: {absent}")
+    print(f"Attendance logs for {date_str}")
+    print("-" * 74)
+    print(f"{'employee':25} {'timestamp':22} {'confidence':12}")
+    print("-" * 74)
+    for employee, timestamp, confidence in rows:
+        print(f"{employee[:25]:25} {timestamp:22} {confidence:<12.6f}")
+    print("-" * 74)
+    print(f"Total rows: {len(rows)}")
 
 
 def write_csv(rows, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["name", "status", "first_seen_at", "last_seen_at"])
+        writer.writerow(["employee", "timestamp", "confidence"])
         writer.writerows(rows)
 
 
