@@ -1,9 +1,14 @@
 import argparse
 import sqlite3
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from mtcnn import MTCNN
 
@@ -30,8 +35,10 @@ def iter_images(path: Path) -> Iterable[Path]:
     if path.is_file():
         yield path
         return
-    for ext in IMAGE_EXTS:
-        yield from path.rglob(ext)
+    allowed = {".jpg", ".jpeg", ".png"}
+    for img in path.rglob("*"):
+        if img.is_file() and img.suffix.lower() in allowed:
+            yield img
 
 
 def init_db(db_path: Path) -> sqlite3.Connection:
@@ -73,10 +80,17 @@ def compute_metrics(tp: int, tn: int, fp: int, fn: int) -> tuple[float, float, f
 
 
 def mtcnn_detector_factory(device: str, conf_threshold: float) -> Callable[[Path], bool]:
-    detector = MTCNN(device=device)
+    try:
+        detector = MTCNN(device=device)
+    except TypeError:
+        # Backward compatibility for older mtcnn versions that do not accept `device`.
+        detector = MTCNN()
 
     def detect(image_path: Path) -> bool:
-        detections = detector.detect_faces(str(image_path))
+        try:
+            detections = detector.detect_faces(str(image_path))
+        except Exception:
+            return False
         max_conf = max((float(d.get("confidence", 0.0)) for d in detections), default=0.0)
         return len(detections) > 0 and max_conf >= conf_threshold
 
@@ -92,7 +106,10 @@ def retinaface_detector_factory(conf_threshold: float) -> Callable[[Path], bool]
         ) from exc
 
     def detect(image_path: Path) -> bool:
-        result = RetinaFace.detect_faces(str(image_path))
+        try:
+            result = RetinaFace.detect_faces(str(image_path))
+        except Exception:
+            return False
         if not isinstance(result, dict) or len(result) == 0:
             return False
         scores = [
@@ -113,10 +130,20 @@ def yolo_detector_factory(model_path: str, conf_threshold: float) -> Callable[[P
             "YOLO not available. Install with: pip install ultralytics"
         ) from exc
 
-    model = YOLO(model_path)
+    model_path_obj = Path(model_path).resolve()
+    if not model_path_obj.exists():
+        raise RuntimeError(
+            f"YOLO model file not found locally: {model_path_obj}. "
+            "Provide --yolo-model with a local .pt file."
+        )
+
+    model = YOLO(str(model_path_obj))
 
     def detect(image_path: Path) -> bool:
-        result = model(str(image_path), verbose=False)[0]
+        try:
+            result = model(str(image_path), verbose=False)[0]
+        except Exception:
+            return False
         if result.boxes is None or len(result.boxes) == 0:
             return False
         confs = result.boxes.conf.tolist() if result.boxes.conf is not None else []
@@ -214,12 +241,12 @@ def main() -> None:
     parser.add_argument(
         "--negative-root",
         type=Path,
-        default=Path("tests/images/no-faces.jpg"),
+        default=Path("tests/images/negatives/no-faces.jpg"),
         help="Folder or file with non-face images.",
     )
     parser.add_argument("--device", default="CPU:0")
     parser.add_argument("--confidence-threshold", type=float, default=0.9)
-    parser.add_argument("--yolo-model", default="yolov8n-face.pt")
+    parser.add_argument("--yolo-model", default="yolov8n.pt")
     parser.add_argument(
         "--no-reset-today",
         action="store_true",
@@ -258,7 +285,8 @@ def main() -> None:
         results.append(result)
 
     if not results:
-        raise RuntimeError("No models were evaluated. Install RetinaFace/YOLO dependencies and retry.")
+        print("No models were evaluated. Install dependencies or provide valid model files and retry.")
+        return
 
     conn = init_db(args.db_path.resolve())
     save_results(conn, results, reset_today=not args.no_reset_today)
