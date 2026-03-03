@@ -22,6 +22,7 @@
 
 import os
 import importlib
+from pathlib import Path
 
 import joblib
 
@@ -37,11 +38,17 @@ def load_weights(weights_name):
     Returns:
         The loaded weights if found, otherwise raises an exception.
     """
-    # Define possible paths: first check user-provided path, then fallback to package assets
+    # Define possible paths: first check user-provided path, then fallback to package assets.
+    local_assets_path = Path(__file__).resolve().parents[1] / "assets" / "weights" / weights_name
     paths = [
         os.path.abspath(weights_name),  # Check if it's a user-provided file path
-        importlib.resources.files('mtcnn.assets.weights') / weights_name  # Fallback to package's assets
+        str(local_assets_path),  # Fallback for source checkout execution
     ]
+    try:
+        paths.append(str(importlib.resources.files('mtcnn.assets.weights') / weights_name))
+    except Exception:
+        # If package resources are not available, rely on filesystem fallback.
+        pass
 
     # Try to load weights from the first valid path
     for path in paths:

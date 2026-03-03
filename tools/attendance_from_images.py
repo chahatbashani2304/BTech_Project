@@ -1,7 +1,12 @@
 import argparse
 import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from mtcnn import MTCNN
 
@@ -78,9 +83,76 @@ def get_or_create_student(cur: sqlite3.Cursor, name: str) -> int:
     return int(row[0])
 
 
+def dedupe_and_enforce_daily_uniqueness(cur: sqlite3.Cursor) -> None:
+    # Keep only the latest row per (student_id, day), then enforce uniqueness.
+    cur.execute(
+        """
+        DELETE FROM attendance_logs
+        WHERE id NOT IN (
+            SELECT MAX(id)
+            FROM attendance_logs
+            GROUP BY student_id, date(timestamp)
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_student_day
+        ON attendance_logs(student_id, date(timestamp))
+        """
+    )
+
+
+def upsert_daily_attendance(
+    cur: sqlite3.Cursor,
+    student_id: int,
+    image_path: str,
+    now_iso: str,
+    confidence: float,
+) -> None:
+    cur.execute(
+        """
+        SELECT id
+        FROM attendance_logs
+        WHERE student_id = ? AND date(timestamp) = date(?)
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (student_id, now_iso),
+    )
+    row = cur.fetchone()
+    if row is None:
+        cur.execute(
+            """
+            INSERT INTO attendance_logs(student_id, image_path, timestamp, confidence)
+            VALUES (?, ?, ?, ?)
+            """,
+            (student_id, image_path, now_iso, confidence),
+        )
+    else:
+        cur.execute(
+            """
+            UPDATE attendance_logs
+            SET image_path = ?, timestamp = ?, confidence = ?
+            WHERE id = ?
+            """,
+            (image_path, now_iso, confidence, int(row[0])),
+        )
+
+
 def iter_images(root: Path):
-    for ext in ("*.jpg", "*.jpeg", "*.png"):
-        yield from root.rglob(ext)
+    allowed = {".jpg", ".jpeg", ".png"}
+    for path in root.rglob("*"):
+        if path.is_file() and path.suffix.lower() in allowed:
+            yield path
+
+
+def create_mtcnn_detector(device: str) -> MTCNN:
+    try:
+        return MTCNN(device=device)
+    except TypeError:
+        # Backward compatibility for older mtcnn versions that do not accept `device`.
+        return MTCNN()
 
 
 def main() -> None:
@@ -119,9 +191,11 @@ def main() -> None:
     if not images_root.exists():
         raise FileNotFoundError(f"Images root not found: {images_root}")
 
-    detector = MTCNN(device=args.device)
     conn = init_db(args.db_path.resolve())
     cur = conn.cursor()
+    dedupe_and_enforce_daily_uniqueness(cur)
+    conn.commit()
+    detector = create_mtcnn_detector(args.device)
 
     today = datetime.now().date().isoformat()
     if not args.no_reset_today:
@@ -137,7 +211,11 @@ def main() -> None:
         person_name = image_path.parent.name
         student_id = get_or_create_student(cur, person_name)
 
-        detections = detector.detect_faces(str(image_path))
+        try:
+            detections = detector.detect_faces(str(image_path))
+        except Exception as exc:
+            print(f"Warning: could not read image {image_path} ({exc}); recording as 0 faces.")
+            detections = []
         faces_detected = len(detections)
         now_iso = datetime.now().isoformat(timespec="seconds")
         max_confidence = max((float(d.get("confidence", 0.0)) for d in detections), default=0.0)
@@ -151,13 +229,7 @@ def main() -> None:
         )
 
         if faces_detected > 0 and max_confidence >= args.confidence_threshold:
-            cur.execute(
-                """
-                INSERT INTO attendance_logs(student_id, image_path, timestamp, confidence)
-                VALUES (?, ?, ?, ?)
-                """,
-                (student_id, str(image_path), now_iso, max_confidence),
-            )
+            upsert_daily_attendance(cur, student_id, str(image_path), now_iso, max_confidence)
             logged_rows += 1
 
     conn.commit()

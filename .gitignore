@@ -115,3 +115,9 @@ $RECYCLE.BIN/
 # Pyre type checker
 .pyre/
 
+attendance.db
+yoloenv/
+reports/
+yolov8n.pt
+tests/images/dataset/Ayushi/
+tests/images/realtime/
