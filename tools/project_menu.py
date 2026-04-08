@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATASET_ROOT = PROJECT_ROOT / "tests" / "images" / "dataset"
+DATASET_ROOT = PROJECT_ROOT / "tests" / "images" / "lpw_small"
 DB_PATH = PROJECT_ROOT / "attendance.db"
 VALID_IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 

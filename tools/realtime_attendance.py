@@ -289,7 +289,7 @@ def main() -> None:
     parser.add_argument(
         "--dataset-root",
         type=Path,
-        default=Path("tests/images/dataset"),
+        default=Path("tests/images/lpw_small"),
         help="Dataset root used for auto-identification mode.",
     )
     parser.add_argument(
@@ -336,7 +336,7 @@ def main() -> None:
             conn.close()
             raise RuntimeError(
                 "Auto-identification database is empty. Add clear face images under "
-                "tests/images/dataset/<PersonName>/ and retry."
+                "tests/images/lpw_small/<PersonName>/ and retry."
             )
         print(f"Realtime mode: auto-identify ({len(face_db)} identities loaded)")
 

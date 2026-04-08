@@ -23,7 +23,7 @@ def fetch_attendance(conn: sqlite3.Connection, date_str: str):
 def print_table(rows, date_str: str) -> None:
     print(f"Attendance logs for {date_str}")
     print("-" * 74)
-    print(f"{'employee':25} {'timestamp':22} {'confidence':12}")
+    print(f"{'Person_name':25} {'timestamp':22} {'confidence':12}")
     print("-" * 74)
     for employee, timestamp, confidence in rows:
         print(f"{employee[:25]:25} {timestamp:22} {confidence:<12.6f}")

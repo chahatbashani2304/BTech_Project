@@ -6,7 +6,7 @@ import cv2
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATASET_ROOT = PROJECT_ROOT / "tests" / "images" / "dataset"
+DATASET_ROOT = PROJECT_ROOT / "tests" / "images" / "lpw_small"
 
 
 def backend_candidates(name: str) -> list[int]:
